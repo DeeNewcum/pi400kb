@@ -30,8 +30,8 @@ int keyboard_fd;
 int mouse_fd;
 int uinput_keyboard_fd;
 int uinput_mouse_fd;
-struct hid_buf keyboard_buf;
-struct hid_buf mouse_buf;
+struct keyboard_hid_buf keyboard_buf;
+struct hid_buf          mouse_buf;
 
 void signal_handler(int dummy) {
     running = 0;
@@ -160,7 +160,7 @@ void grab_both() {
 void send_empty_hid_reports_both() {
     if(keyboard_fd > -1) {
 #ifndef NO_OUTPUT
-        memset(keyboard_buf.data, 0, KEYBOARD_HID_REPORT_SIZE);
+        memset((char*)&keyboard_buf.modifier, 0, KEYBOARD_HID_REPORT_SIZE);
         write(hid_output, (unsigned char *)&keyboard_buf, KEYBOARD_HID_REPORT_SIZE + 1);
 #endif
     }
@@ -169,6 +169,49 @@ void send_empty_hid_reports_both() {
 #ifndef NO_OUTPUT
         memset(mouse_buf.data, 0, MOUSE_HID_REPORT_SIZE);
         write(hid_output, (unsigned char *)&mouse_buf, MOUSE_HID_REPORT_SIZE + 1);
+#endif
+    }
+}
+
+// a key event from the USB HID keyboard
+void handle_keyboard_report() {
+    printf("K:");
+    printhex((unsigned char*)&(keyboard_buf.modifier), KEYBOARD_HID_REPORT_SIZE);
+
+    int num_keycodes = strnlen((char*)keyboard_buf.keycode, KEYBOARD_HID_REPORT_SIZE - 2);
+    if (keyboard_buf.keycode[0] == KEYCODE_ERR_OVF)
+        num_keycodes = -1;
+
+    // Ctrl + Raspberry -- toggle capture on/off
+    if (keyboard_buf.modifier == (KEY_MOD_LCTRL | KEY_MOD_LMETA) && num_keycodes == 0) {
+        if(grabbed) {
+            ungrab_both();
+            send_empty_hid_reports_both();
+        } else {
+            grab_both();
+        }
+
+    // Ctrl + Shift + Raspberry -- exit
+    } else if (keyboard_buf.modifier == (KEY_MOD_LCTRL | KEY_MOD_LMETA | KEY_MOD_LSHIFT) && num_keycodes == 0) {
+        running = 0;
+        return;
+
+    // Raspberry + F1 -- playback macro
+    } else if (keyboard_buf.modifier == KEY_MOD_LMETA && num_keycodes == 1 && keyboard_buf.keycode[0] == KEYCODE_F1) {
+        printf("==== playback macro ====\n");
+        // TODO: implement this
+
+    // Shift + Raspberry + F1 -- record macro
+    } else if (keyboard_buf.modifier == (KEY_MOD_LMETA | KEY_MOD_LSHIFT) && num_keycodes == 1 && keyboard_buf.keycode[0] == KEYCODE_F1) {
+        printf("==== record macro ====\n");
+        // TODO: implement this
+
+    } else {
+#ifndef NO_OUTPUT
+        if(grabbed) {
+            write(hid_output, (unsigned char*)&keyboard_buf, KEYBOARD_HID_REPORT_SIZE + 1);
+            usleep(1000);
+        }
 #endif
     }
 }
@@ -232,34 +275,10 @@ int main(int argc, char *argv[]) {
     while (running){
         poll(pollFd, 2, -1);
         if(keyboard_fd > -1) {
-            int c = read(keyboard_fd, keyboard_buf.data, KEYBOARD_HID_REPORT_SIZE);
+            int c = read(keyboard_fd, (char*)&keyboard_buf.modifier, KEYBOARD_HID_REPORT_SIZE);
 
-            if(c == KEYBOARD_HID_REPORT_SIZE){
-                printf("K:");
-                printhex(keyboard_buf.data, KEYBOARD_HID_REPORT_SIZE);
-
-#ifndef NO_OUTPUT
-                if(grabbed) {
-                    write(hid_output, (unsigned char *)&keyboard_buf, KEYBOARD_HID_REPORT_SIZE + 1);
-                    usleep(1000);
-                }
-#endif
-
-                // Trap Ctrl + Raspberry and toggle capture on/off
-                if(keyboard_buf.data[0] == 0x09){
-                    if(grabbed) {
-                        ungrab_both();
-                        send_empty_hid_reports_both();
-                    } else {
-                        grab_both();
-                    }
-                }
-                // Trap Ctrl + Shift + Raspberry and exit
-                if(keyboard_buf.data[0] == 0x0b){
-                    running = 0;
-                    break;
-                }
-            }
+            if(c == KEYBOARD_HID_REPORT_SIZE)
+                handle_keyboard_report();
         }
         if(mouse_fd > -1) {
             int c = read(mouse_fd, mouse_buf.data, MOUSE_HID_REPORT_SIZE);
