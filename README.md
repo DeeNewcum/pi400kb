@@ -65,6 +65,12 @@ Enable start on boot if it's okay:
 sudo systemctl enable pi400kb.service
 ```
 
+### Record/playback macro
+
+Press Shift-Raspberry-F1 to begin recording the macro, and press it again to stop recording.
+
+To playback, press Raspberry-F1.
+
 ## Building & Contributing
 
 ### Building

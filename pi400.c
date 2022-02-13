@@ -21,6 +21,13 @@
 #define EVIOC_GRAB 1
 #define EVIOC_UNGRAB 0
 
+#define MAX_MACRO_SIZE 1024         // the maximum number of keyboard reports that can be in a macro
+struct recorded_macro {
+    struct keyboard_hid_buf kbd_report[MAX_MACRO_SIZE];
+    int num_reports;
+};
+#define MACRO_PLAYBACK_DELAY 50000     // microseconds between each keyboard report
+
 int hid_output;
 volatile int running = 0;
 volatile int grabbed = 0;
@@ -32,6 +39,8 @@ int uinput_keyboard_fd;
 int uinput_mouse_fd;
 struct keyboard_hid_buf keyboard_buf;
 struct hid_buf          mouse_buf;
+bool is_recording = false;
+struct recorded_macro macro;
 
 void signal_handler(int dummy) {
     running = 0;
@@ -196,17 +205,44 @@ void handle_keyboard_report() {
         running = 0;
         return;
 
-    // Raspberry + F1 -- playback macro
-    } else if (keyboard_buf.modifier == KEY_MOD_LMETA && num_keycodes == 1 && keyboard_buf.keycode[0] == KEYCODE_F1) {
-        printf("==== playback macro ====\n");
-        // TODO: implement this
-
     // Shift + Raspberry + F1 -- record macro
     } else if (keyboard_buf.modifier == (KEY_MOD_LMETA | KEY_MOD_LSHIFT) && num_keycodes == 1 && keyboard_buf.keycode[0] == KEYCODE_F1) {
-        printf("==== record macro ====\n");
-        // TODO: implement this
+        if (grabbed) {
+            if (is_recording) {
+                is_recording = false;
+                printf("Finished recording the macro.\n");
+            } else {
+                is_recording = true;
+                memset(&macro, 0, sizeof(macro));
+                printf("Started recording the macro.\n");
+            }
+        }
 
+    // Raspberry + F1 -- playback macro
+    } else if (keyboard_buf.modifier == KEY_MOD_LMETA && num_keycodes == 1 && keyboard_buf.keycode[0] == KEYCODE_F1) {
+        if (grabbed) {
+            printf("Playing back the macro\n");
+#ifndef NO_OUTPUT
+            for (int ctr=0; ctr<macro.num_reports; ctr++) {
+                write(hid_output, (unsigned char*)&macro.kbd_report[ctr], KEYBOARD_HID_REPORT_SIZE + 1);
+                usleep(MACRO_PLAYBACK_DELAY);
+            }
+#endif
+        }
+
+    // all other keys
     } else {
+        if (grabbed && is_recording) {
+            if (macro.num_reports >= MAX_MACRO_SIZE) {
+                // automatically stop recording the macro when we hit the limit
+                is_recording = false;
+                printf("Finished recording the macro.\n");
+            } else {
+                memcpy(&macro.kbd_report[macro.num_reports], &keyboard_buf, KEYBOARD_HID_REPORT_SIZE + 1);
+                macro.num_reports++;
+            }
+        }
+
 #ifndef NO_OUTPUT
         if(grabbed) {
             write(hid_output, (unsigned char*)&keyboard_buf, KEYBOARD_HID_REPORT_SIZE + 1);
