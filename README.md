@@ -71,6 +71,8 @@ Press Shift-Raspberry-F1 to begin recording the macro, and press it again to sto
 
 To playback, press Raspberry-F1.
 
+This works for F1 through F12.
+
 ## Building & Contributing
 
 ### Building

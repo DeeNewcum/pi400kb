@@ -39,8 +39,8 @@ int uinput_keyboard_fd;
 int uinput_mouse_fd;
 struct keyboard_hid_buf keyboard_buf;
 struct hid_buf          mouse_buf;
-bool is_recording = false;
-struct recorded_macro macro;
+struct recorded_macro macros[11];
+int recording_macro = -1;       // -1 if not recording, 0 through 11 if currently recording
 
 void signal_handler(int dummy) {
     running = 0;
@@ -184,6 +184,8 @@ void send_empty_hid_reports_both() {
 
 // a key event from the USB HID keyboard
 void handle_keyboard_report() {
+    int this_macro = -1;
+
     printf("K:");
     printhex((unsigned char*)&(keyboard_buf.modifier), KEYBOARD_HID_REPORT_SIZE);
 
@@ -205,26 +207,29 @@ void handle_keyboard_report() {
         running = 0;
         return;
 
-    // Shift + Raspberry + F1 -- record macro
-    } else if (keyboard_buf.modifier == (KEY_MOD_LMETA | KEY_MOD_LSHIFT) && num_keycodes == 1 && keyboard_buf.keycode[0] == KEYCODE_F1) {
+    // Shift + Raspberry + F1 through F12 -- record macro
+    } else if (keyboard_buf.modifier == (KEY_MOD_LMETA | KEY_MOD_LSHIFT) && num_keycodes == 1 &&
+                keyboard_buf.keycode[0] >= KEYCODE_F1 && keyboard_buf.keycode[0] <= KEYCODE_F12) {
         if (grabbed) {
-            if (is_recording) {
-                is_recording = false;
-                printf("Finished recording the macro.\n");
+            if (recording_macro >= 0) {
+                printf("Finished recording macro F%d.\n", recording_macro+1);
+                recording_macro = -1;
             } else {
-                is_recording = true;
-                memset(&macro, 0, sizeof(macro));
-                printf("Started recording the macro.\n");
+                recording_macro = keyboard_buf.keycode[0] - KEYCODE_F1;
+                memset(&macros, 0, sizeof(struct recorded_macro));
+                printf("Started recording macro F%d.\n", recording_macro+1);
             }
         }
 
-    // Raspberry + F1 -- playback macro
-    } else if (keyboard_buf.modifier == KEY_MOD_LMETA && num_keycodes == 1 && keyboard_buf.keycode[0] == KEYCODE_F1) {
+    // Raspberry + F1 through F2 -- playback macro
+    } else if (keyboard_buf.modifier == KEY_MOD_LMETA && num_keycodes == 1 &&
+                keyboard_buf.keycode[0] >= KEYCODE_F1 && keyboard_buf.keycode[0] <= KEYCODE_F12) {
+        this_macro = keyboard_buf.keycode[0] - KEYCODE_F1;
         if (grabbed) {
-            printf("Playing back the macro\n");
+            printf("Playing back macro F%d.\n", this_macro+1);
 #ifndef NO_OUTPUT
-            for (int ctr=0; ctr<macro.num_reports; ctr++) {
-                write(hid_output, (unsigned char*)&macro.kbd_report[ctr], KEYBOARD_HID_REPORT_SIZE + 1);
+            for (int ctr=0; ctr<macros[this_macro].num_reports; ctr++) {
+                write(hid_output, (unsigned char*)&macros[this_macro].kbd_report[ctr], KEYBOARD_HID_REPORT_SIZE + 1);
                 usleep(MACRO_PLAYBACK_DELAY);
             }
 #endif
@@ -232,14 +237,14 @@ void handle_keyboard_report() {
 
     // all other keys
     } else {
-        if (grabbed && is_recording) {
-            if (macro.num_reports >= MAX_MACRO_SIZE) {
+        if (grabbed && recording_macro >= 0) {
+            if (macros[recording_macro].num_reports >= MAX_MACRO_SIZE) {
                 // automatically stop recording the macro when we hit the limit
-                is_recording = false;
-                printf("Finished recording the macro.\n");
+                printf("Finished recording macro F%d.\n", recording_macro+1);
+                recording_macro = -1;
             } else {
-                memcpy(&macro.kbd_report[macro.num_reports], &keyboard_buf, KEYBOARD_HID_REPORT_SIZE + 1);
-                macro.num_reports++;
+                memcpy(&macros[recording_macro].kbd_report[macros[recording_macro].num_reports], &keyboard_buf, KEYBOARD_HID_REPORT_SIZE + 1);
+                macros[recording_macro].num_reports++;
             }
         }
 
