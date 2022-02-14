@@ -221,7 +221,7 @@ void handle_keyboard_report() {
             }
         }
 
-    // Raspberry + F1 through F2 -- playback macro
+    // Raspberry + F1 through F12 -- playback macro
     } else if (keyboard_buf.modifier == KEY_MOD_LMETA && num_keycodes == 1 &&
                 keyboard_buf.keycode[0] >= KEYCODE_F1 && keyboard_buf.keycode[0] <= KEYCODE_F12) {
         this_macro = keyboard_buf.keycode[0] - KEYCODE_F1;
